@@ -85,27 +85,35 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for input when connected
+  // Input polling
   useEffect(() => {
-    if (!isConnected || !isPolling) return;
-
-    const pollInput = async () => {
-      try {
-        const inputData = await invoke<ControllerInput>('read_controller_input');
-        setInput(inputData);
-        setError('');
-      } catch (e) {
-        // Silently ignore "No data available" errors
-        const errorMsg = String(e);
-        if (!errorMsg.includes('No data available')) {
-          setError(errorMsg);
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let isFetching = false;
+    // Do not poll if mapper is running, otherwise they steal packets from each other!
+    if (isConnected && isPolling && !isMapperRunning) {
+      interval = setInterval(async () => {
+        if (isFetching) return;
+        isFetching = true;
+        try {
+          const data = await invoke<ControllerInput>('read_controller_input');
+          setInput(data);
+          setError(''); // Clear error on successful read
+        } catch (e) {
+          const errorMsg = String(e);
+          // Silently ignore "No data available" errors
+          if (!errorMsg.includes('No data available')) {
+            console.error("Failed to read input:", e);
+            setError(errorMsg);
+          }
+        } finally {
+          isFetching = false;
         }
-      }
+      }, 30); // ~33Hz for minimal latency
+    }
+    return () => {
+      if (interval) clearInterval(interval);
     };
-
-    const interval = setInterval(pollInput, 30); // ~33Hz for minimal latency
-    return () => clearInterval(interval);
-  }, [isConnected, isPolling]);
+  }, [isConnected, isPolling, isMapperRunning]);
 
   const detectController = async () => {
     try {

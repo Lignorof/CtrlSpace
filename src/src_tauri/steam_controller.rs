@@ -71,67 +71,69 @@ impl SteamControllerManager {
     pub fn connect(&self) -> Result<SteamControllerInfo, String> {
         let api = self.api.lock().unwrap();
 
-        // Try to find and open the VENDOR-SPECIFIC interface (not mouse/keyboard)
-        // We need usage_page=0xFF00 (65280) which is the raw controller interface
+        let mut last_error = "Steam Controller not found".to_string();
+
         for device_info in api.device_list() {
             if device_info.vendor_id() == VALVE_VENDOR_ID {
                 let pid = device_info.product_id();
                 if pid == SC_WIRELESS_PID || pid == SC_WIRED_PID {
                     // Only open vendor-specific interface (usage_page=65280)
-                    // This is NOT the mouse (usage_page=1, usage=2) or keyboard interface
                     if device_info.usage_page() != 0xFF00 {
-                        println!("⏭️ Skipping interface {} (usage_page={}, usage={}) - not vendor-specific",
-                            device_info.interface_number(),
-                            device_info.usage_page(),
-                            device_info.usage());
                         continue;
                     }
 
-                    println!("✅ Opening vendor-specific interface {} (usage_page=0x{:04x}, usage={})",
-                        device_info.interface_number(),
-                        device_info.usage_page(),
-                        device_info.usage());
+                    match api.open_path(device_info.path()) {
+                        Ok(device) => {
+                            // Try to disable lizard mode on this interface
+                            // The Steam Controller exposes multiple 0xFF00 interfaces on Windows.
+                            // Only one of them actively accepts these feature reports and streams data.
+                            let disable_mouse = vec![0x81, 0x00];
+                            if let Err(e) = device.send_feature_report(&disable_mouse) {
+                                println!("⚠️ Interface {} rejected Lizard Mode disable: {}", device_info.interface_number(), e);
+                                last_error = format!("Interface {} rejected feature report", device_info.interface_number());
+                                continue; // Try the next 0xFF00 interface
+                            }
 
-                    let device = api
-                        .open_path(device_info.path())
-                        .map_err(|e| format!("Failed to open device path: {}", e))?;
+                            // Success! This is the right interface.
+                            std::thread::sleep(std::time::Duration::from_millis(20));
 
-                    let connection_type = if pid == SC_WIRELESS_PID {
-                        "Wireless"
-                    } else {
-                        "Wired"
-                    };
+                            let enable_input = vec![
+                                0x87, 0x15, 0x32, 0x84, 0x03, 0x18, 0x00, 0x00,
+                                0x31, 0x02, 0x00, 0x08, 0x07, 0x00, 0x07, 0x07,
+                                0x00, 0x30, 0x18, 0x00, 0x2f, 0x01, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            ];
+                            let _ = device.send_feature_report(&enable_input);
 
-                    let info = SteamControllerInfo {
-                        connected: true,
-                        connection_type: connection_type.to_string(),
-                        product_name: device_info
-                            .product_string()
-                            .unwrap_or("Steam Controller")
-                            .to_string(),
-                        serial: device_info
-                            .serial_number()
-                            .unwrap_or("Unknown")
-                            .to_string(),
-                    };
+                            println!("✅ Successfully bound to Interface {}", device_info.interface_number());
 
-                    // Store the device
-                    let mut device_lock = self.device.lock().unwrap();
-                    *device_lock = Some(device);
-                    drop(device_lock); // Release lock
+                            let connection_type = if pid == SC_WIRELESS_PID { "Wireless" } else { "Wired" };
+                            let info = SteamControllerInfo {
+                                connected: true,
+                                connection_type: connection_type.to_string(),
+                                product_name: device_info.product_string().unwrap_or("Steam Controller").to_string(),
+                                serial: device_info.serial_number().unwrap_or("Unknown").to_string(),
+                            };
 
-                    // NOTE: NOT disabling Lizard Mode for now - trying to read data
-                    // while mouse emulation is still active. Many Steam Controller
-                    // projects do this successfully.
-                    println!("📡 Connected to vendor-specific interface - ready to read raw data");
-                    println!("   (Lizard Mode still active - mouse will continue working)");
-
-                    return Ok(info);
+                            let mut device_lock = self.device.lock().unwrap();
+                            *device_lock = Some(device);
+                            
+                            return Ok(info);
+                        }
+                        Err(e) => {
+                            last_error = format!("Failed to open path: {}", e);
+                            continue;
+                        }
+                    }
                 }
             }
         }
 
-        Err("Steam Controller not found".to_string())
+        Err(last_error)
     }
 
     /// Disable Lizard Mode (mouse/keyboard emulation)
@@ -218,23 +220,35 @@ impl SteamControllerManager {
     }
 
     /// Read input from the controller (non-blocking with minimal timeout for real-time polling)
+    /// Drains the queue and returns the latest report to eliminate latency on wireless dongles
     pub fn read_input(&self) -> Result<Vec<u8>, String> {
         let device_lock = self.device.lock().unwrap();
 
         match device_lock.as_ref() {
             Some(device) => {
+                let mut latest_buf = None;
                 let mut buf = vec![0u8; 64];
-                // Very short timeout (10ms) for minimal latency
-                match device.read_timeout(&mut buf, 10) {
-                    Ok(size) => {
-                        if size > 0 {
-                            buf.truncate(size);
-                            Ok(buf)
-                        } else {
-                            Err("No data available".to_string())
+                
+                // Keep reading until the buffer is empty to get the most recent state
+                loop {
+                    match device.read_timeout(&mut buf, 10) {
+                        Ok(size) if size > 0 => {
+                            let mut valid_buf = buf.clone();
+                            valid_buf.truncate(size);
+                            latest_buf = Some(valid_buf);
+                        }
+                        Ok(_) => break, // size == 0, queue is drained
+                        Err(_) => {
+                            // If we already have a previous packet, return it instead of failing
+                            break; 
                         }
                     }
-                    Err(e) => Err(format!("Read error: {}", e)),
+                }
+
+                if let Some(data) = latest_buf {
+                    Ok(data)
+                } else {
+                    Err("No data available".to_string())
                 }
             }
             None => Err("Controller not connected".to_string()),
