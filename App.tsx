@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/tauri';
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import './styles/index.css';
 import { ProfileEditor } from './components/ProfileEditor';
 
@@ -402,31 +402,35 @@ function ProgressBar({ label, value, max }: { label: string; value: number; max:
 }
 
 function StickVisualizer({ x, y }: { x: number; y: number }) {
-  // Convert stick values (-32768 to 32767) to percentage (0-100)
-  const xPercent = ((x + 32768) / 65535) * 100;
-  const yPercent = ((y + 32768) / 65535) * 100;
+  const { xPercent, yPercent } = useMemo(() => normalizePoint(x, y), [x, y]);
 
   return (
     <div
-      className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2"
+      className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-75 ease-out will-change-[left,top]"
       style={{ left: `${xPercent}%`, top: `${100 - yPercent}%` }}
     />
   );
 }
 
 function TrackpadVisualizer({ data }: { data: TrackpadData }) {
+  const { xPercent, yPercent } = useMemo(() => normalizePoint(data.x, data.y), [data.x, data.y]);
   if (!data.active) return null;
-
-  // Convert trackpad values (-32768 to 32767) to percentage (0-100)
-  const xPercent = ((data.x + 32768) / 65535) * 100;
-  const yPercent = ((data.y + 32768) / 65535) * 100;
 
   return (
     <div
-      className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2"
+      className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-75 ease-out will-change-[left,top]"
       style={{ left: `${xPercent}%`, top: `${100 - yPercent}%` }}
     />
   );
+}
+
+function normalizePoint(x: number, y: number) {
+  const clamp = (value: number) => Math.max(2, Math.min(98, value));
+
+  return {
+    xPercent: clamp(((x + 32768) / 65535) * 100),
+    yPercent: clamp(((y + 32768) / 65535) * 100),
+  };
 }
 
 export default App;

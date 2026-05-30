@@ -230,9 +230,11 @@ pub fn parse_input_report(data: &[u8]) -> Result<ControllerInput, String> {
     input.buttons.a = (btn_low & 0x80) != 0;
 
     input.buttons.stick_click = (btn_high & 0x40) != 0; // standard guess for stick
-    input.buttons.select = (btn_high & 0x10) != 0; // back
-    input.buttons.start = (btn_high & 0x20) != 0;  // forward
-    input.buttons.rgrip = (btn_high & 0x04) != 0;  // right grip
+    // These bits read as always-on for the wireless dongle reports currently used here.
+    // Leave them off until the dongle layout is mapped from fresh raw reports.
+    input.buttons.select = false;
+    input.buttons.start = false;
+    input.buttons.rgrip = false;
     input.buttons.lgrip = (btn_high & 0x02) != 0;  // left grip
 
 

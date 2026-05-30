@@ -107,9 +107,28 @@ impl SteamControllerManager {
                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                             ];
-                            let _ = device.send_feature_report(&enable_input);
+                            if let Err(e) = device.send_feature_report(&enable_input) {
+                                println!("⚠️ Interface {} rejected input enable: {}", device_info.interface_number(), e);
+                                last_error = format!("Interface {} rejected input enable", device_info.interface_number());
+                                continue;
+                            }
 
-                            println!("✅ Successfully bound to Interface {}", device_info.interface_number());
+                            let mut test_buf = vec![0u8; 64];
+                            match device.read_timeout(&mut test_buf, 250) {
+                                Ok(size) if size > 0 => {
+                                    println!("✅ Successfully bound to Interface {} ({} byte test report)", device_info.interface_number(), size);
+                                }
+                                Ok(_) => {
+                                    println!("⚠️ Interface {} accepted setup but produced no input", device_info.interface_number());
+                                    last_error = format!("Interface {} produced no input", device_info.interface_number());
+                                    continue;
+                                }
+                                Err(e) => {
+                                    println!("⚠️ Interface {} read test failed: {}", device_info.interface_number(), e);
+                                    last_error = format!("Interface {} read test failed", device_info.interface_number());
+                                    continue;
+                                }
+                            }
 
                             let connection_type = if pid == SC_WIRELESS_PID { "Wireless" } else { "Wired" };
                             let info = SteamControllerInfo {
