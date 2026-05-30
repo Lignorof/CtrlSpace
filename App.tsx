@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/tauri';
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import './styles/index.css';
 
 interface SteamControllerInfo {
@@ -66,6 +66,25 @@ function App() {
   const [error, setError] = useState<string>('');
   const [input, setInput] = useState<ControllerInput | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [isMapperRunning, setIsMapperRunning] = useState(false);
+
+  useEffect(() => {
+    const blockSteamInput = (event: WheelEvent | KeyboardEvent | MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener('wheel', blockSteamInput, { passive: false, capture: true });
+    window.addEventListener('keydown', blockSteamInput, { capture: true });
+    window.addEventListener('contextmenu', blockSteamInput, { capture: true });
+    window.addEventListener('auxclick', blockSteamInput, { capture: true });
+    return () => {
+      window.removeEventListener('wheel', blockSteamInput, { capture: true });
+      window.removeEventListener('keydown', blockSteamInput, { capture: true });
+      window.removeEventListener('contextmenu', blockSteamInput, { capture: true });
+      window.removeEventListener('auxclick', blockSteamInput, { capture: true });
+    };
+  }, []);
 
   // Check connection status periodically
   useEffect(() => {
@@ -83,27 +102,35 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for input when connected
+  // Input polling
   useEffect(() => {
-    if (!isConnected || !isPolling) return;
-
-    const pollInput = async () => {
-      try {
-        const inputData = await invoke<ControllerInput>('read_controller_input');
-        setInput(inputData);
-        setError('');
-      } catch (e) {
-        // Silently ignore "No data available" errors
-        const errorMsg = String(e);
-        if (!errorMsg.includes('No data available')) {
-          setError(errorMsg);
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let isFetching = false;
+    // Do not poll if mapper is running, otherwise they steal packets from each other!
+    if (isConnected && isPolling && !isMapperRunning) {
+      interval = setInterval(async () => {
+        if (isFetching) return;
+        isFetching = true;
+        try {
+          const data = await invoke<ControllerInput>('read_controller_input');
+          setInput(data);
+          setError(''); // Clear error on successful read
+        } catch (e) {
+          const errorMsg = String(e);
+          // Silently ignore "No data available" errors
+          if (!errorMsg.includes('No data available')) {
+            console.error("Failed to read input:", e);
+            setError(errorMsg);
+          }
+        } finally {
+          isFetching = false;
         }
-      }
+      }, 30); // ~33Hz for minimal latency
+    }
+    return () => {
+      if (interval) clearInterval(interval);
     };
-
-    const interval = setInterval(pollInput, 30); // ~33Hz for minimal latency
-    return () => clearInterval(interval);
-  }, [isConnected, isPolling]);
+  }, [isConnected, isPolling, isMapperRunning]);
 
   const detectController = async () => {
     try {
@@ -139,6 +166,22 @@ function App() {
     }
   };
 
+  const toggleMapper = async () => {
+    try {
+      if (isMapperRunning) {
+        await invoke('stop_mapper');
+        setIsMapperRunning(false);
+      } else {
+        await invoke('start_mapper');
+        setIsMapperRunning(true);
+      }
+      setError('');
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+
   const testRawInput = async () => {
     try {
       const rawData = await invoke<string>('read_raw_input_debug');
@@ -164,34 +207,34 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-center">
+    <div className="h-screen overflow-hidden bg-gray-900 text-white p-3">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold mb-3 text-center">
           🎮 CtrlSpace - Steam Controller Manager
         </h1>
 
         {/* Connection Status */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-6">
-          <h2 className="text-2xl font-semibold mb-4">Connection Status</h2>
+        <div className="bg-gray-800 rounded-lg p-3 mb-3">
+          <h2 className="text-lg font-semibold mb-2">Connection Status</h2>
 
-          <div className="flex items-center gap-4 mb-4">
-            <div className={`w-4 h-4 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm">
               {isConnected ? 'Connected' : 'Not Connected'}
             </span>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-2 text-sm">
             <button
               onClick={detectController}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded transition"
             >
               Detect Controller
             </button>
             <button
               onClick={connectController}
               disabled={isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-green-600 hover:bg-green-700'
@@ -202,7 +245,7 @@ function App() {
             <button
               onClick={disconnectController}
               disabled={!isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 !isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-red-600 hover:bg-red-700'
@@ -213,7 +256,7 @@ function App() {
             <button
               onClick={testRawInput}
               disabled={!isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 !isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-yellow-600 hover:bg-yellow-700'
@@ -223,14 +266,27 @@ function App() {
             </button>
             <button
               onClick={listInterfaces}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded transition"
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded transition"
             >
               🔍 List HID Interfaces
+            </button>
+            <button
+              onClick={toggleMapper}
+              disabled={!isConnected}
+              className={`px-3 py-1.5 rounded transition font-bold ${
+                !isConnected
+                  ? 'bg-gray-600 cursor-not-allowed text-gray-400'
+                  : isMapperRunning 
+                    ? 'bg-red-600 hover:bg-red-700 border-2 border-red-400' 
+                    : 'bg-green-600 hover:bg-green-700 border-2 border-green-500'
+              }`}
+            >
+              {isMapperRunning ? '⏹ Stop Mapper' : '▶ Start Mapper'}
             </button>
           </div>
 
           {controllerInfo && (
-            <div className="mt-4 p-4 bg-gray-700 rounded">
+            <div className="mt-2 p-2 bg-gray-700 rounded text-xs">
               <p><strong>Product:</strong> {controllerInfo.product_name}</p>
               <p><strong>Connection:</strong> {controllerInfo.connection_type}</p>
               <p><strong>Serial:</strong> {controllerInfo.serial}</p>
@@ -238,7 +294,7 @@ function App() {
           )}
 
           {error && (
-            <div className="mt-4 p-4 bg-red-900 border border-red-600 rounded">
+            <div className="mt-2 p-2 bg-red-900 border border-red-600 rounded text-xs">
               <p className="text-red-200">{error}</p>
             </div>
           )}
@@ -246,15 +302,15 @@ function App() {
 
         {/* Input Debug View */}
         {isConnected && (
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-2xl font-semibold mb-4">Input Debug View</h2>
+          <div className="bg-gray-800 rounded-lg p-3">
+            <h2 className="text-lg font-semibold mb-2">Input Debug View</h2>
 
             {input ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {/* Buttons */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Buttons</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Buttons</h3>
+                  <div className="grid grid-cols-4 gap-1.5 text-xs">
                     <ButtonIndicator label="A" active={input.buttons.a} />
                     <ButtonIndicator label="B" active={input.buttons.b} />
                     <ButtonIndicator label="X" active={input.buttons.x} />
@@ -275,49 +331,49 @@ function App() {
                 </div>
 
                 {/* Analog Inputs */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Analog Triggers</h3>
-                  <div className="space-y-2">
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Analog Triggers</h3>
+                  <div className="space-y-1">
                     <ProgressBar label="Left Trigger" value={input.triggers.left} max={255} />
                     <ProgressBar label="Right Trigger" value={input.triggers.right} max={255} />
                   </div>
                 </div>
 
                 {/* Stick */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Analog Stick</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Analog Stick</h3>
                   <p className="text-sm">X: {input.stick.x}</p>
                   <p className="text-sm">Y: {input.stick.y}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <StickVisualizer x={input.stick.x} y={input.stick.y} />
                   </div>
                 </div>
 
                 {/* Left Trackpad */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Left Trackpad</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Left Trackpad</h3>
                   <p className="text-sm">X: {input.left_trackpad.x}</p>
                   <p className="text-sm">Y: {input.left_trackpad.y}</p>
                   <p className="text-sm">Active: {input.left_trackpad.active ? 'Yes' : 'No'}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <TrackpadVisualizer data={input.left_trackpad} />
                   </div>
                 </div>
 
                 {/* Right Trackpad */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Right Trackpad</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Right Trackpad</h3>
                   <p className="text-sm">X: {input.right_trackpad.x}</p>
                   <p className="text-sm">Y: {input.right_trackpad.y}</p>
                   <p className="text-sm">Active: {input.right_trackpad.active ? 'Yes' : 'No'}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <TrackpadVisualizer data={input.right_trackpad} />
                   </div>
                 </div>
 
                 {/* Gyro */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Gyroscope</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Gyroscope</h3>
                   <p className="text-sm">Pitch: {input.gyro.pitch}</p>
                   <p className="text-sm">Yaw: {input.gyro.yaw}</p>
                   <p className="text-sm">Roll: {input.gyro.roll}</p>
@@ -361,31 +417,35 @@ function ProgressBar({ label, value, max }: { label: string; value: number; max:
 }
 
 function StickVisualizer({ x, y }: { x: number; y: number }) {
-  // Convert stick values (-32768 to 32767) to percentage (0-100)
-  const xPercent = ((x + 32768) / 65535) * 100;
-  const yPercent = ((y + 32768) / 65535) * 100;
+  const { xPercent, yPercent } = useMemo(() => normalizePoint(x, y), [x, y]);
 
   return (
     <div
-      className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2"
+      className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-75 ease-out will-change-[left,top]"
       style={{ left: `${xPercent}%`, top: `${100 - yPercent}%` }}
     />
   );
 }
 
 function TrackpadVisualizer({ data }: { data: TrackpadData }) {
+  const { xPercent, yPercent } = useMemo(() => normalizePoint(data.x, data.y), [data.x, data.y]);
   if (!data.active) return null;
-
-  // Convert trackpad values (-32768 to 32767) to percentage (0-100)
-  const xPercent = ((data.x + 32768) / 65535) * 100;
-  const yPercent = ((data.y + 32768) / 65535) * 100;
 
   return (
     <div
-      className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2"
+      className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-75 ease-out will-change-[left,top]"
       style={{ left: `${xPercent}%`, top: `${100 - yPercent}%` }}
     />
   );
+}
+
+function normalizePoint(x: number, y: number) {
+  const clamp = (value: number) => Math.max(2, Math.min(98, value));
+
+  return {
+    xPercent: clamp(((x + 32768) / 65535) * 100),
+    yPercent: clamp(((y + 32768) / 65535) * 100),
+  };
 }
 
 export default App;

@@ -216,10 +216,27 @@ pub fn parse_input_report(data: &[u8]) -> Result<ControllerInput, String> {
 
     let mut input = ControllerInput::default();
 
-    // Parse buttons (bytes 2-3 contain button state flags)
-    // TODO: Need more test data to map individual buttons correctly
-    let btn_low = data[2];
+    // Parse buttons. Wireless reports expose the main buttons in byte 8.
+    let btn_low = data[8];
     let btn_high = data[3];
+
+    input.buttons.rt = (btn_low & 0x01) != 0;
+    input.buttons.lt = (btn_low & 0x02) != 0;
+    input.buttons.rb = (btn_low & 0x04) != 0;
+    input.buttons.lb = (btn_low & 0x08) != 0;
+    input.buttons.y = (btn_low & 0x10) != 0;
+    input.buttons.x = (btn_low & 0x20) != 0;
+    input.buttons.b = (btn_low & 0x40) != 0;
+    input.buttons.a = (btn_low & 0x80) != 0;
+
+    input.buttons.stick_click = (btn_high & 0x40) != 0; // standard guess for stick
+    // These bits read as always-on for the wireless dongle reports currently used here.
+    // Leave them off until the dongle layout is mapped from fresh raw reports.
+    input.buttons.select = false;
+    input.buttons.start = false;
+    input.buttons.rgrip = false;
+    input.buttons.lgrip = (btn_high & 0x02) != 0;  // left grip
+
 
     // Byte 8: Trigger press detection
     let trigger_flags = data[8];
@@ -238,7 +255,7 @@ pub fn parse_input_report(data: &[u8]) -> Result<ControllerInput, String> {
     // Parse analog triggers (bytes 12-13)
     // Note: Resting values are around 0xe0-0xff, not 0x00!
     input.triggers.right = data[12];
-    input.triggers.left = data[13];
+    input.triggers.left = data[13].max(data[11]);
 
     // Parse stick OR left trackpad (bytes 16-19: X,Y as 16-bit LE)
     // When trackpad L is touched (flag 0x08), these are trackpad coordinates
