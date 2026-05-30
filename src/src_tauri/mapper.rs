@@ -93,23 +93,22 @@ pub fn start_mapper(sc_manager: Arc<Mutex<Option<SteamControllerManager>>>) {
 
                     if let Some(buf) = latest_buf {
                         if let Ok(input) = crate::src_tauri::input_parser::parse_input_report(&buf) {
-                                let profile = {
-                                    state_clone.lock().unwrap().profile.clone()
-                                };
+                            let profile = {
+                                state_clone.lock().unwrap().profile.clone()
+                            };
 
-                                // Execute mapping based on changes
-                                // Button A -> Space
-                                if profile.map_a_to_space {
-                                    if input.buttons.a && !last_state.a {
-                                        let _ = enigo.key(Key::Space, Direction::Press);
-                                    } else if !input.buttons.a && last_state.a {
-                                        let _ = enigo.key(Key::Space, Direction::Release);
-                                    }
+                            // Execute mapping based on changes
+                            // Button A -> Space
+                            if profile.map_a_to_space {
+                                if input.buttons.a && !last_state.a {
+                                    let _ = enigo.key(Key::Space, Direction::Press);
+                                } else if !input.buttons.a && last_state.a {
+                                    let _ = enigo.key(Key::Space, Direction::Release);
                                 }
-
-                                // Store last state
-                                last_state = input.buttons;
                             }
+
+                            // Store last state
+                            last_state = input.buttons;
                         }
                     }
                 }
