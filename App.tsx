@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import { useMemo, useState, useEffect } from 'react';
 import './styles/index.css';
-import { ProfileEditor } from './components/ProfileEditor';
 
 interface SteamControllerInfo {
   connected: boolean;
@@ -68,6 +67,24 @@ function App() {
   const [input, setInput] = useState<ControllerInput | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [isMapperRunning, setIsMapperRunning] = useState(false);
+
+  useEffect(() => {
+    const blockSteamInput = (event: WheelEvent | KeyboardEvent | MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener('wheel', blockSteamInput, { passive: false, capture: true });
+    window.addEventListener('keydown', blockSteamInput, { capture: true });
+    window.addEventListener('contextmenu', blockSteamInput, { capture: true });
+    window.addEventListener('auxclick', blockSteamInput, { capture: true });
+    return () => {
+      window.removeEventListener('wheel', blockSteamInput, { capture: true });
+      window.removeEventListener('keydown', blockSteamInput, { capture: true });
+      window.removeEventListener('contextmenu', blockSteamInput, { capture: true });
+      window.removeEventListener('auxclick', blockSteamInput, { capture: true });
+    };
+  }, []);
 
   // Check connection status periodically
   useEffect(() => {
@@ -190,34 +207,34 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-center">
+    <div className="h-screen overflow-hidden bg-gray-900 text-white p-3">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold mb-3 text-center">
           🎮 CtrlSpace - Steam Controller Manager
         </h1>
 
         {/* Connection Status */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-6">
-          <h2 className="text-2xl font-semibold mb-4">Connection Status</h2>
+        <div className="bg-gray-800 rounded-lg p-3 mb-3">
+          <h2 className="text-lg font-semibold mb-2">Connection Status</h2>
 
-          <div className="flex items-center gap-4 mb-4">
-            <div className={`w-4 h-4 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm">
               {isConnected ? 'Connected' : 'Not Connected'}
             </span>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-2 text-sm">
             <button
               onClick={detectController}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded transition"
             >
               Detect Controller
             </button>
             <button
               onClick={connectController}
               disabled={isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-green-600 hover:bg-green-700'
@@ -228,7 +245,7 @@ function App() {
             <button
               onClick={disconnectController}
               disabled={!isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 !isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-red-600 hover:bg-red-700'
@@ -239,7 +256,7 @@ function App() {
             <button
               onClick={testRawInput}
               disabled={!isConnected}
-              className={`px-4 py-2 rounded transition ${
+              className={`px-3 py-1.5 rounded transition ${
                 !isConnected
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-yellow-600 hover:bg-yellow-700'
@@ -249,14 +266,14 @@ function App() {
             </button>
             <button
               onClick={listInterfaces}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded transition"
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded transition"
             >
               🔍 List HID Interfaces
             </button>
             <button
               onClick={toggleMapper}
               disabled={!isConnected}
-              className={`px-4 py-2 rounded transition font-bold ${
+              className={`px-3 py-1.5 rounded transition font-bold ${
                 !isConnected
                   ? 'bg-gray-600 cursor-not-allowed text-gray-400'
                   : isMapperRunning 
@@ -269,7 +286,7 @@ function App() {
           </div>
 
           {controllerInfo && (
-            <div className="mt-4 p-4 bg-gray-700 rounded">
+            <div className="mt-2 p-2 bg-gray-700 rounded text-xs">
               <p><strong>Product:</strong> {controllerInfo.product_name}</p>
               <p><strong>Connection:</strong> {controllerInfo.connection_type}</p>
               <p><strong>Serial:</strong> {controllerInfo.serial}</p>
@@ -277,25 +294,23 @@ function App() {
           )}
 
           {error && (
-            <div className="mt-4 p-4 bg-red-900 border border-red-600 rounded">
+            <div className="mt-2 p-2 bg-red-900 border border-red-600 rounded text-xs">
               <p className="text-red-200">{error}</p>
             </div>
           )}
         </div>
 
-        {isConnected && <ProfileEditor />}
-
         {/* Input Debug View */}
         {isConnected && (
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-2xl font-semibold mb-4">Input Debug View</h2>
+          <div className="bg-gray-800 rounded-lg p-3">
+            <h2 className="text-lg font-semibold mb-2">Input Debug View</h2>
 
             {input ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {/* Buttons */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Buttons</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Buttons</h3>
+                  <div className="grid grid-cols-4 gap-1.5 text-xs">
                     <ButtonIndicator label="A" active={input.buttons.a} />
                     <ButtonIndicator label="B" active={input.buttons.b} />
                     <ButtonIndicator label="X" active={input.buttons.x} />
@@ -316,49 +331,49 @@ function App() {
                 </div>
 
                 {/* Analog Inputs */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Analog Triggers</h3>
-                  <div className="space-y-2">
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Analog Triggers</h3>
+                  <div className="space-y-1">
                     <ProgressBar label="Left Trigger" value={input.triggers.left} max={255} />
                     <ProgressBar label="Right Trigger" value={input.triggers.right} max={255} />
                   </div>
                 </div>
 
                 {/* Stick */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Analog Stick</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Analog Stick</h3>
                   <p className="text-sm">X: {input.stick.x}</p>
                   <p className="text-sm">Y: {input.stick.y}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <StickVisualizer x={input.stick.x} y={input.stick.y} />
                   </div>
                 </div>
 
                 {/* Left Trackpad */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Left Trackpad</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Left Trackpad</h3>
                   <p className="text-sm">X: {input.left_trackpad.x}</p>
                   <p className="text-sm">Y: {input.left_trackpad.y}</p>
                   <p className="text-sm">Active: {input.left_trackpad.active ? 'Yes' : 'No'}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <TrackpadVisualizer data={input.left_trackpad} />
                   </div>
                 </div>
 
                 {/* Right Trackpad */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Right Trackpad</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Right Trackpad</h3>
                   <p className="text-sm">X: {input.right_trackpad.x}</p>
                   <p className="text-sm">Y: {input.right_trackpad.y}</p>
                   <p className="text-sm">Active: {input.right_trackpad.active ? 'Yes' : 'No'}</p>
-                  <div className="mt-2 w-full h-32 bg-gray-900 rounded relative">
+                  <div className="mt-1 w-full h-24 bg-gray-900 rounded relative">
                     <TrackpadVisualizer data={input.right_trackpad} />
                   </div>
                 </div>
 
                 {/* Gyro */}
-                <div className="bg-gray-700 rounded p-4">
-                  <h3 className="text-xl font-semibold mb-3">Gyroscope</h3>
+                <div className="bg-gray-700 rounded p-3">
+                  <h3 className="text-base font-semibold mb-2">Gyroscope</h3>
                   <p className="text-sm">Pitch: {input.gyro.pitch}</p>
                   <p className="text-sm">Yaw: {input.gyro.yaw}</p>
                   <p className="text-sm">Roll: {input.gyro.roll}</p>
